@@ -9,3 +9,6 @@ generated-projects/*
 .DS_Store
 coverage/
 *.log
+
+# next.js
+.next/
