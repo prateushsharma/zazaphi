@@ -1,0 +1,21 @@
+{
+  "name": "@zazaphi/api",
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "demo": "tsx src/demo.ts",
+    "dev": "tsx watch src/server.ts",
+    "start": "tsx src/server.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@zazaphi/contracts": "workspace:*",
+    "@zazaphi/core": "workspace:*",
+    "@zazaphi/gateway": "workspace:*",
+    "@zazaphi/context": "workspace:*",
+    "@zazaphi/economics": "workspace:*",
+    "@zazaphi/sandbox": "workspace:*",
+    "@zazaphi/services": "workspace:*",
+    "@zazaphi/deploy": "workspace:*"
+  }
+}
