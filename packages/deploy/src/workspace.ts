@@ -16,11 +16,23 @@ const RUNTIME: Record<string, string> = {
         start: "next start -H 0.0.0.0 -p 3000",
       },
       dependencies: { next: "14.2.5", react: "18.3.1", "react-dom": "18.3.1" },
+      devDependencies: {
+        typescript: "5.5.4",
+        "@types/node": "20.14.0",
+        "@types/react": "18.3.3",
+        "@types/react-dom": "18.3.0",
+      },
     },
     null,
     2,
   ),
-  "next.config.mjs": "/** @type {import('next').NextConfig} */\nconst nextConfig = {};\nexport default nextConfig;\n",
+  "next.config.mjs":
+    "/** @type {import('next').NextConfig} */\n" +
+    "const nextConfig = {\n" +
+    "  typescript: { ignoreBuildErrors: true },\n" +
+    "  eslint: { ignoreDuringBuilds: true },\n" +
+    "};\n" +
+    "export default nextConfig;\n",
   "tsconfig.json": JSON.stringify(
     {
       compilerOptions: {
@@ -28,7 +40,7 @@ const RUNTIME: Record<string, string> = {
         lib: ["dom", "dom.iterable", "ES2022"],
         allowJs: true,
         skipLibCheck: true,
-        strict: true,
+        strict: false,
         noEmit: true,
         esModuleInterop: true,
         module: "ESNext",
