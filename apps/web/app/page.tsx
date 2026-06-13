@@ -273,7 +273,8 @@ export default function Page() {
                       </div>
                     </div>
                     <div style={{ display: "flex", gap: 10 }}>
-                      <button className="btn btn-ghost">Open preview</button>
+                      <a className="btn btn-ghost" href={result.production?.url ?? result.preview.url} target="_blank" rel="noreferrer">Open preview</a>
+                      <a className="btn btn-ghost" href="/api/download">Download .zip</a>
                       {result.awaiting_approval && !result.production ? (
                         <>
                           <button className="btn btn-danger" onClick={() => approve(false)} disabled={deploying}>Reject</button>

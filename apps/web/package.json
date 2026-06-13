@@ -9,23 +9,24 @@
     "start": "next start -p 3000"
   },
   "dependencies": {
+    "@zazaphi/context": "workspace:*",
     "@zazaphi/contracts": "workspace:*",
     "@zazaphi/core": "workspace:*",
-    "@zazaphi/gateway": "workspace:*",
-    "@zazaphi/context": "workspace:*",
+    "@zazaphi/deploy": "workspace:*",
     "@zazaphi/economics": "workspace:*",
+    "@zazaphi/gateway": "workspace:*",
     "@zazaphi/sandbox": "workspace:*",
     "@zazaphi/services": "workspace:*",
-    "@zazaphi/deploy": "workspace:*",
+    "jszip": "^3.10.1",
     "next": "^14.2.5",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },
   "devDependencies": {
+    "@tailwindcss/postcss": "^4.0.0",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
-    "@tailwindcss/postcss": "^4.0.0",
-    "tailwindcss": "^4.0.0",
-    "postcss": "^8.4.41"
+    "postcss": "^8.4.41",
+    "tailwindcss": "^4.0.0"
   }
 }
