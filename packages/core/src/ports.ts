@@ -13,6 +13,7 @@ import type {
   DeployResult,
   GeneratedFile,
   TokenUsage,
+  Token,
   RunId,
 } from "@zazaphi/contracts";
 
@@ -46,6 +47,8 @@ export interface LLMGatewayPort {
     req: LLMRequest,
     schema: S,
   ): Promise<GatewayResult<z.infer<S>>>;
+  /** Token-by-token generation for the same request shape. */
+  stream(req: LLMRequest): AsyncIterable<Token>;
 }
 
 /** Assembles the minimal context_packet for one task. */
