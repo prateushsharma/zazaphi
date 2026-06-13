@@ -58,7 +58,22 @@ export class DockerDeploy implements DeployPort {
     });
   }
 
+  /** Pull the base image once, up front, so `docker run` itself stays fast. */
+  private async ensureImage(): Promise<void> {
+    const inspect = await docker(["image", "inspect", this.config.image], 15_000);
+    if (inspect.exitCode === 0) return;
+    const pull = await docker(["pull", this.config.image], this.config.pullTimeoutMs);
+    if (pull.spawnError) {
+      throw new Error(`docker unavailable: ${pull.spawnError}`);
+    }
+    if (pull.exitCode !== 0) {
+      throw new Error(`failed to pull image ${this.config.image}: ${pull.output.slice(-400)}`);
+    }
+  }
+
   private async launch(name: string, hostPort: number, mode: Mode): Promise<void> {
+    await this.ensureImage();
+
     const workdir = resolve(this.config.workRoot, mode);
     await materializeForPreview(workdir, this.store.load().fileMap);
 
@@ -68,7 +83,7 @@ export class DockerDeploy implements DeployPort {
     const serve = mode === "dev" ? "exec npm run dev" : "npm run build && exec npm run start";
     const command = `${install} && ${serve}`;
 
-    const run = await docker(this.runArgs(name, hostPort, workdir, command), 30_000);
+    const run = await docker(this.runArgs(name, hostPort, workdir, command), 60_000);
     if (run.spawnError) {
       throw new Error(`docker unavailable: ${run.spawnError}`);
     }
