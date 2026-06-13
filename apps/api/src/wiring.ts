@@ -1,7 +1,7 @@
 import { ProjectSpec } from "@zazaphi/contracts";
 import { Orchestrator, ConsoleLogger, InMemoryProjectStore } from "@zazaphi/core";
 import type { OrchestratorPorts, EconomicsPort, Logger } from "@zazaphi/core";
-import { StubGroqGateway } from "@zazaphi/gateway";
+import { createGateway } from "@zazaphi/gateway";
 import { StubContextBuilder } from "@zazaphi/context";
 import { DefaultEconomics } from "@zazaphi/economics";
 import { StubSandbox } from "@zazaphi/sandbox";
@@ -28,19 +28,21 @@ const PLACEHOLDER_SPEC = ProjectSpec.parse({
 /**
  * The only place concrete implementations are chosen. Swapping any subsystem
  * for its real version is a one-line change here; nothing else in the system
- * references a concrete class.
+ * references a concrete class. The gateway resolves to the real Groq provider
+ * when GROQ_API_KEY is set and to the offline stub otherwise.
  */
 export function wire(options: WiringOptions = {}): Wired {
   const economics = new DefaultEconomics();
+  const logger = options.logger ?? new ConsoleLogger();
   const ports: OrchestratorPorts = {
-    gateway: new StubGroqGateway(),
+    gateway: createGateway({ onFallback: (reason) => logger.warn(reason) }),
     context: new StubContextBuilder(),
     economics,
     sandbox: new StubSandbox(options.failFirstAttempt ?? false),
     services: new ManifestBuilder(),
     deploy: new StubDeploy(),
     store: new InMemoryProjectStore(PLACEHOLDER_SPEC),
-    logger: options.logger ?? new ConsoleLogger(),
+    logger,
   };
   return { orchestrator: new Orchestrator(ports), economics };
 }

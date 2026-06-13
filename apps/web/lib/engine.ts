@@ -1,7 +1,7 @@
 import { ProjectSpec } from "@zazaphi/contracts";
 import { Orchestrator, InMemoryProjectStore, SilentLogger } from "@zazaphi/core";
 import type { OrchestratorPorts } from "@zazaphi/core";
-import { StubGroqGateway } from "@zazaphi/gateway";
+import { createGateway } from "@zazaphi/gateway";
 import { StubContextBuilder } from "@zazaphi/context";
 import { DefaultEconomics } from "@zazaphi/economics";
 import { StubSandbox } from "@zazaphi/sandbox";
@@ -17,7 +17,7 @@ const PLACEHOLDER = ProjectSpec.parse({
 
 function build(): Orchestrator {
   const ports: OrchestratorPorts = {
-    gateway: new StubGroqGateway(),
+    gateway: createGateway(),
     context: new StubContextBuilder(),
     economics: new DefaultEconomics(),
     sandbox: new StubSandbox(true),
