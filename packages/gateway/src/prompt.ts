@@ -24,14 +24,31 @@ export function serializeContext(packet: ContextPacket): string {
   return JSON.stringify(packet);
 }
 
-export function buildUserContent(req: LLMRequest): string {
-  return [
+/**
+ * Builds the dynamic user message. When a JSON Schema is supplied it is embedded
+ * verbatim so the model targets exact field names instead of guessing — the
+ * single biggest lever on first-pass structured-output success. The schema is
+ * per-task, so it lives here in the dynamic suffix, never in the cached prefix.
+ */
+export function buildUserContent(req: LLMRequest, schemaText?: string): string {
+  const parts: string[] = [
     "TASK CONTEXT (JSON):",
     serializeContext(req.context_packet),
     "",
-    "Produce a single JSON object that satisfies the required schema for this task.",
-    "Return JSON only.",
-  ].join("\n");
+  ];
+  if (schemaText) {
+    parts.push(
+      "Return a single JSON object that conforms exactly to this JSON Schema:",
+      schemaText,
+      "",
+      "Include every required property using the exact property names.",
+      "Do not add properties that are not declared in the schema.",
+    );
+  } else {
+    parts.push("Produce a single JSON object that satisfies the required schema for this task.");
+  }
+  parts.push("Return JSON only. No prose, no markdown.");
+  return parts.join("\n");
 }
 
 export function buildRepairContent(error: string): string {

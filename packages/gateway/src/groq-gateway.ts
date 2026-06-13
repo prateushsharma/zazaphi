@@ -1,5 +1,6 @@
 import Groq from "groq-sdk";
 import type { z } from "zod";
+import { zodToJsonSchema } from "zod-to-json-schema";
 import type {
   FinishReason,
   LLMRequest,
@@ -80,11 +81,20 @@ function tryParse<S extends z.ZodTypeAny>(schema: S, content: string): ParseResu
   return { ok: true, value: result.data };
 }
 
+function schemaTextFor(schema: z.ZodTypeAny): string {
+  try {
+    return JSON.stringify(zodToJsonSchema(schema));
+  } catch {
+    return "";
+  }
+}
+
 /**
  * Provider-agnostic gateway backed by Groq's OpenAI-compatible chat completions
  * endpoint. Assembles a stable system prefix first (cacheable), then the
- * serialized context packet. Structured calls validate against the caller's Zod
- * schema and perform exactly one bounded repair round-trip before failing.
+ * serialized context packet and the target JSON Schema. Structured calls
+ * validate against the caller's Zod schema and perform exactly one bounded
+ * repair round-trip before failing.
  */
 export class GroqGateway implements LLMGatewayPort {
   private readonly client: Groq;
@@ -103,7 +113,7 @@ export class GroqGateway implements LLMGatewayPort {
     schema: S,
   ): Promise<GatewayResult<z.infer<S>>> {
     const model = this.config.models[req.model_tier];
-    const messages = this.assembleMessages(req, model);
+    const messages = this.assembleMessages(req, model, schemaTextFor(schema));
 
     const first = await this.complete(model, messages, req.max_output_tokens);
     const firstParsed = tryParse(schema, first.content);
@@ -151,9 +161,9 @@ export class GroqGateway implements LLMGatewayPort {
     }
   }
 
-  private assembleMessages(req: LLMRequest, model: string): ChatMessages {
+  private assembleMessages(req: LLMRequest, model: string, schemaText?: string): ChatMessages {
     const system = systemPrefixFor(req.system_prefix_id);
-    const userContent = buildUserContent(req);
+    const userContent = buildUserContent(req, schemaText);
     const estimatedInput = estimateTokens(system) + estimateTokens(userContent);
     if (estimatedInput > req.max_input_tokens) {
       throw new GatewayError(
