@@ -12,5 +12,8 @@
   "dependencies": {
     "@zazaphi/contracts": "workspace:*",
     "@zazaphi/core": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0"
   }
 }
