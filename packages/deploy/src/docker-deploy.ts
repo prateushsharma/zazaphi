@@ -3,7 +3,7 @@ import { DeployResult } from "@zazaphi/contracts";
 import type { RunId } from "@zazaphi/contracts";
 import type { DeployPort, ProjectStorePort } from "@zazaphi/core";
 import type { DeployConfig } from "./config.js";
-import { docker, waitForHttp } from "./docker.js";
+import { docker } from "./docker.js";
 import { materializeForPreview } from "./workspace.js";
 
 const PREVIEW_CONTAINER = "zazaphi-preview";
@@ -19,10 +19,11 @@ function currentUser(): string {
 
 /**
  * Runs the generated project in a real Docker container and serves it on a host
- * port. One container per project (the previous one is removed first), not one
- * per task. Preview is automatic; production is approval-gated and rebuilds with
- * `next build && next start`. The container runs non-root with dropped
- * capabilities, no new privileges, and resource limits.
+ * port. The container is started and the call returns immediately — install and
+ * server boot happen in the background, so the run request stays fast. One
+ * container per project (the previous one is removed first), not one per task.
+ * Production is approval-gated and rebuilds with `next build && next start`.
+ * Containers run non-root with dropped capabilities and resource limits.
  */
 export class DockerDeploy implements DeployPort {
   constructor(
@@ -90,7 +91,8 @@ export class DockerDeploy implements DeployPort {
     if (run.exitCode !== 0) {
       throw new Error(`failed to start container ${name}: ${run.output.slice(-400)}`);
     }
-    await waitForHttp(`http://localhost:${hostPort}`, this.config.readinessTimeoutMs);
+    // Container started. Install + server boot continue in the background; we do
+    // not block the request on readiness (the URL is live within ~30-60s).
   }
 
   private runArgs(name: string, hostPort: number, workdir: string, command: string): string[] {
