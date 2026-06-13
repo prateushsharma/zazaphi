@@ -7,11 +7,6 @@ const DEFAULT_PREFIX = [
   "Respond with a single JSON object only. No prose, no explanations, no markdown fences.",
 ].join("\n");
 
-/**
- * Stable, cacheable system prefixes keyed by id. The text for an id must never
- * change between calls: byte-identical prefixes are what let the provider serve
- * a prompt-cache hit. Introduce a new id (v2) rather than editing v1.
- */
 const SYSTEM_PREFIXES: Record<string, string> = {
   "zazaphi.system.v1": DEFAULT_PREFIX,
 };
@@ -24,12 +19,6 @@ export function serializeContext(packet: ContextPacket): string {
   return JSON.stringify(packet);
 }
 
-/**
- * Builds the dynamic user message. When a JSON Schema is supplied it is embedded
- * verbatim so the model targets exact field names instead of guessing — the
- * single biggest lever on first-pass structured-output success. The schema is
- * per-task, so it lives here in the dynamic suffix, never in the cached prefix.
- */
 export function buildUserContent(req: LLMRequest, schemaText?: string): string {
   const parts: string[] = [
     "TASK CONTEXT (JSON):",
@@ -47,20 +36,26 @@ export function buildUserContent(req: LLMRequest, schemaText?: string): string {
   } else {
     parts.push("Produce a single JSON object that satisfies the required schema for this task.");
   }
-  parts.push("Return JSON only. No prose, no markdown.");
+  parts.push(
+    "When a property value contains source code, encode it as one JSON string:",
+    "escape every double quote as \\\" and every newline as \\n. Keep each property inside its object.",
+    "Return JSON only. No prose, no markdown.",
+  );
   return parts.join("\n");
 }
 
 export function buildRepairContent(error: string): string {
   return [
-    "Your previous response did not satisfy the required JSON schema.",
-    "Validation error:",
+    "Your previous response was not valid against the required JSON.",
+    "Error:",
     error,
-    "Return a corrected JSON object only. No prose, no markdown.",
+    "",
+    "Return one corrected JSON object only. It must be syntactically valid JSON:",
+    "every string value fully escaped (\\\" for quotes, \\n for newlines), every property",
+    "inside its object, no trailing or dangling tokens. No prose, no markdown.",
   ].join("\n");
 }
 
-/** Cheap, provider-independent token estimate for input-budget enforcement. */
 export function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4);
 }

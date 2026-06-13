@@ -55,6 +55,28 @@ function extractJsonText(raw: string): string {
   return trimmed;
 }
 
+/**
+ * Groq returns a 400 with code "json_validate_failed" when the model emits
+ * structurally invalid JSON, and helpfully includes the broken output under
+ * `failed_generation`. Walk the thrown error for it so we can repair rather than
+ * crash. Returns null for unrelated errors (auth, rate limit) so they rethrow.
+ */
+function extractFailedGeneration(err: unknown): string | null {
+  const seen = new Set<unknown>();
+  const find = (node: unknown, depth: number): string | null => {
+    if (depth > 4 || node === null || typeof node !== "object" || seen.has(node)) return null;
+    seen.add(node);
+    const obj = node as Record<string, unknown>;
+    if (typeof obj.failed_generation === "string") return obj.failed_generation;
+    for (const key of ["error", "body", "response"]) {
+      const found = find(obj[key], depth + 1);
+      if (found !== null) return found;
+    }
+    return null;
+  };
+  return find(err, 0);
+}
+
 function errorText(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
@@ -91,10 +113,10 @@ function schemaTextFor(schema: z.ZodTypeAny): string {
 
 /**
  * Provider-agnostic gateway backed by Groq's OpenAI-compatible chat completions
- * endpoint. Assembles a stable system prefix first (cacheable), then the
- * serialized context packet and the target JSON Schema. Structured calls
- * validate against the caller's Zod schema and perform exactly one bounded
- * repair round-trip before failing.
+ * endpoint. Stable system prefix first (cacheable), then the serialized context
+ * packet and the target JSON Schema. Structured calls validate against the
+ * caller's Zod schema and perform exactly one bounded repair round-trip;
+ * provider-side JSON failures are recovered through the same repair path.
  */
 export class GroqGateway implements LLMGatewayPort {
   private readonly client: Groq;
@@ -182,14 +204,23 @@ export class GroqGateway implements LLMGatewayPort {
     messages: ChatMessages,
     maxOutput: number,
   ): Promise<RawCompletion> {
-    const res = await this.client.chat.completions.create({
-      model,
-      messages,
-      max_completion_tokens: maxOutput,
-      temperature: this.config.temperature,
-      response_format: { type: "json_object" },
-      stream: false,
-    });
+    let res: Groq.Chat.Completions.ChatCompletion;
+    try {
+      res = await this.client.chat.completions.create({
+        model,
+        messages,
+        max_completion_tokens: maxOutput,
+        temperature: this.config.temperature,
+        response_format: { type: "json_object" },
+        stream: false,
+      });
+    } catch (err) {
+      const failed = extractFailedGeneration(err);
+      if (failed !== null) {
+        return { content: failed, usage: { ...ZERO_USAGE }, finish_reason: "error" };
+      }
+      throw err;
+    }
     const choice = res.choices[0];
     return {
       content: choice?.message?.content ?? "",
