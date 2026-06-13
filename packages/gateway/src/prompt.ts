@@ -1,23 +1,23 @@
 import type { ContextPacket, LLMRequest } from "@zazaphi/contracts";
 
+const DEFAULT_PREFIX = [
+  "You are the code-generation engine inside ZaZaPHI, an automated application builder.",
+  "You are given exactly one task and a minimal context packet.",
+  "Obey every constraint on the task. Never modify files outside its declared scope.",
+  "Respond with a single JSON object only. No prose, no explanations, no markdown fences.",
+].join("\n");
+
 /**
  * Stable, cacheable system prefixes keyed by id. The text for an id must never
  * change between calls: byte-identical prefixes are what let the provider serve
  * a prompt-cache hit. Introduce a new id (v2) rather than editing v1.
  */
 const SYSTEM_PREFIXES: Record<string, string> = {
-  "zazaphi.system.v1": [
-    "You are the code-generation engine inside ZaZaPHI, an automated application builder.",
-    "You are given exactly one task and a minimal context packet.",
-    "Obey every constraint on the task. Never modify files outside its declared scope.",
-    "Respond with a single JSON object only. No prose, no explanations, no markdown fences.",
-  ].join("\n"),
+  "zazaphi.system.v1": DEFAULT_PREFIX,
 };
 
-const DEFAULT_PREFIX_ID = "zazaphi.system.v1";
-
 export function systemPrefixFor(id: string): string {
-  return SYSTEM_PREFIXES[id] ?? SYSTEM_PREFIXES[DEFAULT_PREFIX_ID];
+  return SYSTEM_PREFIXES[id] ?? DEFAULT_PREFIX;
 }
 
 export function serializeContext(packet: ContextPacket): string {

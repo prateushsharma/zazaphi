@@ -31,10 +31,9 @@ export function resolveGatewayConfig(
 ): GatewayConfig | null {
   const apiKey = env.GROQ_API_KEY?.trim();
   if (!apiKey) return null;
-  const baseURL = env.GROQ_BASE_URL?.trim();
-  return {
+
+  const config: GatewayConfig = {
     apiKey,
-    baseURL: baseURL ? baseURL : undefined,
     models: {
       small: env.GROQ_MODEL_SMALL?.trim() || DEFAULT_MODELS.small,
       medium: env.GROQ_MODEL_MEDIUM?.trim() || DEFAULT_MODELS.medium,
@@ -44,4 +43,9 @@ export function resolveGatewayConfig(
     requestTimeoutMs: num(env.GROQ_TIMEOUT_MS, 60_000),
     maxRetries: num(env.GROQ_MAX_RETRIES, 2),
   };
+
+  const baseURL = env.GROQ_BASE_URL?.trim();
+  if (baseURL) config.baseURL = baseURL;
+
+  return config;
 }
