@@ -19,6 +19,15 @@ type RunResult = {
   cost: { input_tokens: number; output_tokens: number; cached_tokens: number; calls: number };
 };
 
+type StatusResponse = {
+  job_id: string;
+  phase: "running" | "succeeded" | "failed";
+  stage: string;
+  logs: string[];
+  result: RunResult | null;
+  error: string | null;
+};
+
 const STAGES = [
   { key: "requirement", label: "Requirement", desc: "deriving product spec" },
   { key: "architecture", label: "Architecture", desc: "designing technical plan" },
@@ -27,6 +36,22 @@ const STAGES = [
   { key: "build", label: "Build", desc: "generating + sandboxing" },
   { key: "preview", label: "Preview", desc: "publishing preview" },
 ];
+
+// The pipeline emits a stage event for requirement, architecture, schema,
+// planner and preview; the build/sandbox loop runs between the planner and
+// preview events without its own event, so "planner" maps to the Build slot
+// where the long work is actually happening.
+function activeStageFor(stage: string, phase: StatusResponse["phase"]): number {
+  if (phase === "succeeded") return STAGES.length;
+  const map: Record<string, number> = {
+    requirement: 0,
+    architecture: 1,
+    schema: 2,
+    planner: 4,
+    preview: 5,
+  };
+  return map[stage] ?? 0;
+}
 
 const EXAMPLES = [
   "A CRM for freelancers with clients, invoices and a dashboard",
@@ -61,37 +86,58 @@ export default function Page() {
   const [deploying, setDeploying] = useState(false);
   const [nav, setNav] = useState("build");
   const [error, setError] = useState(null as string | null);
+  const [logs, setLogs] = useState([] as string[]);
 
   async function runBuild() {
     if (!prompt.trim() || phase === "running") return;
     setError(null);
     setResult(null);
+    setLogs([]);
     setPhase("running");
     setActiveStage(0);
 
-    const stepper = setInterval(() => {
-      setActiveStage((s) => (s < STAGES.length - 1 ? s + 1 : s));
-    }, 520);
-
+    let jobId: string;
     try {
       const res = await fetch("/api/run", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ prompt }),
       });
-      const data = (await res.json()) as RunResult & { error?: string };
-      await new Promise((r) => setTimeout(r, 900));
-      clearInterval(stepper);
-      if (!res.ok) throw new Error(data.error ?? "build failed");
-      setActiveStage(STAGES.length);
-      setResult(data);
-      setPhase("done");
+      const data = (await res.json()) as { job_id?: string; error?: string };
+      if (!res.ok || !data.job_id) throw new Error(data.error ?? "failed to start build");
+      jobId = data.job_id;
     } catch (e) {
-      clearInterval(stepper);
       setError(String(e instanceof Error ? e.message : e));
       setPhase("idle");
       setActiveStage(-1);
+      return;
     }
+
+    async function tick(): Promise<void> {
+      try {
+        const res = await fetch(`/api/status?job_id=${encodeURIComponent(jobId)}`);
+        if (!res.ok) return;
+        const s = (await res.json()) as StatusResponse;
+        setLogs(s.logs);
+        setActiveStage(activeStageFor(s.stage, s.phase));
+        if (s.phase === "succeeded" && s.result) {
+          clearInterval(poll);
+          setActiveStage(STAGES.length);
+          setResult(s.result);
+          setPhase("done");
+        } else if (s.phase === "failed") {
+          clearInterval(poll);
+          setError(s.error ?? "build failed");
+          setPhase("idle");
+          setActiveStage(-1);
+        }
+      } catch {
+        // transient fetch error during polling — try again on the next tick
+      }
+    }
+    const poll = setInterval(() => {
+      void tick();
+    }, 1000);
   }
 
   async function approve(ok: boolean) {
@@ -116,6 +162,7 @@ export default function Page() {
     setResult(null);
     setPrompt("");
     setError(null);
+    setLogs([]);
   }
 
   return (
@@ -210,6 +257,13 @@ export default function Page() {
                     );
                   })}
                 </div>
+                {logs.length > 0 && (
+                  <div className="mono" style={{ marginTop: 14, padding: "12px 14px", background: "var(--bg-2)", border: "1px solid var(--border)", borderRadius: 8, maxHeight: 170, overflowY: "auto" }}>
+                    {logs.map((line, i) => (
+                      <div key={i} style={{ fontSize: 12, color: "var(--muted)", lineHeight: 1.7, whiteSpace: "pre-wrap" }}>{line}</div>
+                    ))}
+                  </div>
+                )}
               </section>
             )}
 

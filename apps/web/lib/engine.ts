@@ -1,11 +1,12 @@
 import { ProjectSpec } from "@zazaphi/contracts";
-import { Orchestrator, InMemoryProjectStore, SilentLogger } from "@zazaphi/core";
+import { Orchestrator, InMemoryProjectStore } from "@zazaphi/core";
 import type { OrchestratorPorts } from "@zazaphi/core";
 import { createGateway } from "@zazaphi/gateway";
 import { StubContextBuilder } from "@zazaphi/context";
 import { DefaultEconomics } from "@zazaphi/economics";
 import { ManifestBuilder } from "@zazaphi/services";
 import { createDeploy, createSandbox } from "@zazaphi/deploy";
+import { RegistryLogger, runRegistry } from "./runs";
 
 const PLACEHOLDER = ProjectSpec.parse({
   project_id: "proj_pending",
@@ -39,7 +40,7 @@ function build(): Engine {
     services: new ManifestBuilder(),
     deploy: createDeploy(store),
     store,
-    logger: new SilentLogger(),
+    logger: new RegistryLogger(runRegistry),
   };
   return { orchestrator: new Orchestrator(ports), store };
 }

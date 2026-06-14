@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { orchestrator } from "../../../lib/engine";
+import { runRegistry } from "../../../lib/runs";
 
 export const runtime = "nodejs";
 
@@ -10,8 +11,14 @@ export async function POST(req: Request): Promise<Response> {
     if (!prompt) {
       return NextResponse.json({ error: "prompt is required" }, { status: 400 });
     }
-    const result = await orchestrator.run(prompt);
-    return NextResponse.json(result, { status: 201 });
+    const job_id = runRegistry.start();
+    void orchestrator
+      .run(prompt)
+      .then((result) => runRegistry.succeed(job_id, result))
+      .catch((err: unknown) =>
+        runRegistry.fail(job_id, String(err instanceof Error ? err.message : err)),
+      );
+    return NextResponse.json({ job_id }, { status: 202 });
   } catch (err) {
     return NextResponse.json(
       { error: String(err instanceof Error ? err.message : err) },
