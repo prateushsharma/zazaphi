@@ -66,13 +66,12 @@ export function buildUserContent(req: LLMRequest, schemaText?: string): string {
 
 export function buildRepairContent(error: string): string {
   return [
-    "Your previous response was not valid against the required JSON.",
-    "Error:",
+    "Your previous response did not satisfy the required schema.",
+    "Validation error:",
     error,
     "",
-    "Return one corrected JSON object only. It must be syntactically valid JSON:",
-    "every string value fully escaped (\\\" for quotes, \\n for newlines), every property",
-    "inside its object, no trailing or dangling tokens. No prose, no markdown.",
+    "Fix exactly what the error describes: correct any wrong or missing property names, wrong types, and values that are not in the allowed set (enums). Then make the JSON syntactically valid — escape every double quote as \\\" and every newline as \\n inside string values, with no trailing or dangling tokens.",
+    "Return one corrected JSON object only. No prose, no markdown.",
   ].join("\n");
 }
 

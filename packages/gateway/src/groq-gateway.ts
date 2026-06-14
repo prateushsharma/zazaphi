@@ -115,8 +115,10 @@ function schemaTextFor(schema: z.ZodTypeAny): string {
  * Provider-agnostic gateway backed by Groq's OpenAI-compatible chat completions
  * endpoint. Stable system prefix first (cacheable), then the serialized context
  * packet and the target JSON Schema. Structured calls validate against the
- * caller's Zod schema and perform exactly one bounded repair round-trip;
- * provider-side JSON failures are recovered through the same repair path.
+ * caller's Zod schema and perform a bounded number of repair round-trips
+ * (config.maxRepairs); provider-side JSON failures are recovered through the
+ * same repair path. On final failure the thrown error names the failing stage
+ * and the validation error so the problem is diagnosable.
  */
 export class GroqGateway implements LLMGatewayPort {
   private readonly client: Groq;
@@ -138,26 +140,34 @@ export class GroqGateway implements LLMGatewayPort {
     const messages = this.assembleMessages(req, model, schemaTextFor(schema));
 
     const first = await this.complete(model, messages, req.max_output_tokens);
+    let usage = first.usage;
     const firstParsed = tryParse(schema, first.content);
     if (firstParsed.ok) {
-      return this.success(req, model, firstParsed.value, first.usage);
+      return this.success(req, model, firstParsed.value, usage);
     }
 
-    const repairMessages: ChatMessages = [
-      ...messages,
-      { role: "assistant", content: first.content },
-      { role: "user", content: buildRepairContent(firstParsed.error) },
-    ];
-    const second = await this.complete(model, repairMessages, req.max_output_tokens);
-    const usage = addUsage(first.usage, second.usage);
-    const secondParsed = tryParse(schema, second.content);
-    if (secondParsed.ok) {
-      return this.success(req, model, secondParsed.value, usage);
+    let lastError = firstParsed.error;
+    let lastContent = first.content;
+    for (let attempt = 0; attempt < this.config.maxRepairs; attempt += 1) {
+      const repairMessages: ChatMessages = [
+        ...messages,
+        { role: "assistant", content: lastContent },
+        { role: "user", content: buildRepairContent(lastError) },
+      ];
+      const repair = await this.complete(model, repairMessages, req.max_output_tokens);
+      usage = addUsage(usage, repair.usage);
+      const reparsed = tryParse(schema, repair.content);
+      if (reparsed.ok) {
+        return this.success(req, model, reparsed.value, usage);
+      }
+      lastError = reparsed.error;
+      lastContent = repair.content;
     }
 
+    const stage = req.context_packet.current_task.title;
     throw new GatewayError(
-      "model output failed schema validation after one repair attempt",
-      this.errorResponse(req, model, second.content, usage),
+      `structured output for "${stage}" failed schema validation after ${this.config.maxRepairs} repair attempts: ${lastError.slice(0, 300)}`,
+      this.errorResponse(req, model, lastContent, usage),
     );
   }
 
