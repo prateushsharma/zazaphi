@@ -19,16 +19,34 @@ type RunResult = {
   cost: { input_tokens: number; output_tokens: number; cached_tokens: number; calls: number };
 };
 
+type RunStatus = "generating" | "preview" | "deploying" | "live" | "failed";
 type StatusResponse = {
   job_id: string;
-  phase: "running" | "succeeded" | "failed";
+  status: RunStatus;
   stage: string;
   logs: string[];
   result: RunResult | null;
   error: string | null;
 };
+type ProjectSummary = {
+  job_id: string;
+  name: string;
+  status: RunStatus;
+  stage: string;
+  preview_url: string | null;
+  prod_url: string | null;
+  created_at: number;
+};
 
 const LAST_JOB_KEY = "zazaphi:lastJob";
+
+const STATUS_META: Record<RunStatus, { label: string; cls: string }> = {
+  generating: { label: "generating", cls: "pill-amber" },
+  preview: { label: "preview ready", cls: "pill-violet" },
+  deploying: { label: "deploying", cls: "pill-amber" },
+  live: { label: "live", cls: "pill-green" },
+  failed: { label: "failed", cls: "pill" },
+};
 
 const STAGES = [
   { key: "requirement", label: "Requirement", desc: "deriving product spec" },
@@ -43,8 +61,7 @@ const STAGES = [
 // planner and preview; the build/sandbox loop runs between the planner and
 // preview events without its own event, so "planner" maps to the Build slot
 // where the long work is actually happening.
-function activeStageFor(stage: string, phase: StatusResponse["phase"]): number {
-  if (phase === "succeeded") return STAGES.length;
+function activeStageFor(stage: string): number {
   const map: Record<string, number> = {
     requirement: 0,
     architecture: 1,
@@ -94,21 +111,22 @@ export default function Page() {
   // (so polling can stop).
   function applyStatus(s: StatusResponse): boolean {
     setLogs(s.logs);
-    if (s.phase === "succeeded" && s.result) {
-      setActiveStage(STAGES.length);
-      setResult(s.result);
-      setPhase("done");
-      return true;
-    }
-    if (s.phase === "failed") {
+    if (s.status === "failed") {
       setError(s.error ?? "build failed");
       setPhase("idle");
       setActiveStage(-1);
       return true;
     }
-    setActiveStage(activeStageFor(s.stage, s.phase));
-    setPhase("running");
-    return false;
+    if (s.status === "generating") {
+      setActiveStage(activeStageFor(s.stage));
+      setPhase("running");
+      return false;
+    }
+    // preview | deploying | live — the build is done; show the result
+    if (s.result) setResult(s.result);
+    setActiveStage(STAGES.length);
+    setPhase("done");
+    return true;
   }
 
   function pollJob(jobId: string): void {
@@ -216,6 +234,21 @@ export default function Page() {
     if (typeof window !== "undefined") window.localStorage.removeItem(LAST_JOB_KEY);
   }
 
+  // Reconnect the detail view to any project from the Builds list.
+  async function openBuild(jobId: string): Promise<void> {
+    setNav("build");
+    setError(null);
+    if (typeof window !== "undefined") window.localStorage.setItem(LAST_JOB_KEY, jobId);
+    try {
+      const res = await fetch(`/api/status?job_id=${encodeURIComponent(jobId)}`);
+      if (!res.ok) return;
+      const s = (await res.json()) as StatusResponse;
+      if (!applyStatus(s)) pollJob(jobId);
+    } catch {
+      // nothing to open
+    }
+  }
+
   return (
     <div style={{ display: "flex", minHeight: "100vh" }}>
       {/* Sidebar */}
@@ -254,7 +287,9 @@ export default function Page() {
           </div>
         </header>
 
-        {nav !== "build" && (
+        {nav === "builds" && <BuildsList onOpen={openBuild} />}
+
+        {nav !== "build" && nav !== "builds" && (
           <div className="card" style={{ padding: 48, textAlign: "center", color: "var(--muted)" }}>
             <div style={{ fontSize: 15 }}>{NAV.find((n) => n.key === nav)?.label} — coming in a later build.</div>
           </div>
@@ -424,5 +459,70 @@ function Select({ label, value, onChange, options }: { label: string; value: str
         {options.map((o) => <option key={o} value={o}>{o}</option>)}
       </select>
     </label>
+  );
+}
+
+function BuildsList({ onOpen }: { onOpen: (jobId: string) => void }) {
+  const [projects, setProjects] = useState([] as ProjectSummary[]);
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    async function load(): Promise<void> {
+      try {
+        const res = await fetch("/api/projects");
+        if (!res.ok) return;
+        const data = (await res.json()) as { projects: ProjectSummary[] };
+        if (active) {
+          setProjects(data.projects);
+          setLoaded(true);
+        }
+      } catch {
+        // ignore — try again on the next interval
+      }
+    }
+    void load();
+    const id = setInterval(() => void load(), 3000);
+    return () => {
+      active = false;
+      clearInterval(id);
+    };
+  }, []);
+
+  if (loaded && projects.length === 0) {
+    return (
+      <div className="card" style={{ padding: 48, textAlign: "center", color: "var(--muted)" }}>
+        <div style={{ fontSize: 15 }}>No builds yet — start one from New build.</div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      {projects.map((p) => {
+        const meta = STATUS_META[p.status];
+        const url = p.prod_url ?? p.preview_url;
+        return (
+          <section key={p.job_id} className="card" style={{ padding: 18, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 16 }}>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
+                <span style={{ fontSize: 15, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 420 }}>{p.name}</span>
+                <span className={`pill ${meta.cls}`}>{meta.label}</span>
+              </div>
+              <div className="mono" style={{ fontSize: 12, color: "var(--faint)" }}>
+                {p.job_id}
+                {p.status === "generating" && p.stage ? ` · ${p.stage}` : ""}
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+              {url && (
+                <a className="btn btn-ghost" href={url} target="_blank" rel="noreferrer">Open</a>
+              )}
+              <button className="btn btn-ghost" onClick={() => onOpen(p.job_id)}>View build</button>
+            </div>
+          </section>
+        );
+      })}
+    </div>
   );
 }

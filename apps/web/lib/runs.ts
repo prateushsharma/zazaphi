@@ -1,17 +1,39 @@
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import type { Logger, RunResult } from "@zazaphi/core";
 
-export type RunPhase = "running" | "succeeded" | "failed";
+export type RunStatus = "generating" | "preview" | "deploying" | "live" | "failed";
 
 export interface RunRecord {
   job_id: string;
-  phase: RunPhase;
+  run_id?: string;
+  prompt: string;
+  name?: string;
+  status: RunStatus;
   stage: string;
   logs: string[];
-  result?: RunResult;
+  preview_url?: string;
+  prod_url?: string;
   error?: string;
+  result?: RunResult;
   created_at: number;
   updated_at: number;
 }
+
+export interface ProjectSummary {
+  job_id: string;
+  name: string;
+  status: RunStatus;
+  stage: string;
+  preview_url: string | null;
+  prod_url: string | null;
+  created_at: number;
+}
+
+const STORE_DIR = path.join(os.tmpdir(), "zazaphi");
+const STORE_FILE = path.join(STORE_DIR, "runs.json");
+const MAX_LOG_LINES = 200;
 
 let seq = 0;
 function nextJobId(): string {
@@ -19,31 +41,35 @@ function nextJobId(): string {
   return `job_${Date.now().toString(36)}${seq.toString(36)}`;
 }
 
-const MAX_LOG_LINES = 200;
-
 /**
- * In-memory registry of background runs. A run is started before the pipeline
- * begins, updated as the orchestrator's logger emits stages, and finalized when
- * the pipeline resolves or throws. The build tab polls a record by job_id. One
- * run is active at a time (the UI disables the trigger while a build runs), so
- * the active pointer is unambiguous; per-run loggers arrive with concurrency.
+ * Disk-backed registry of runs. Records are written to a JSON file under the OS
+ * temp dir on every change and reloaded on startup, so a finished or running
+ * build survives both a browser refresh and a dev-server restart. A run that
+ * was mid-flight when the process died is marked failed on reload, since its
+ * background work did not survive the restart. One run is active at a time.
  */
 export class RunRegistry {
   private readonly records = new Map<string, RunRecord>();
   private activeJobId: string | null = null;
 
-  start(): string {
+  constructor() {
+    this.loadFromDisk();
+  }
+
+  start(prompt: string): string {
     const job_id = nextJobId();
     const now = Date.now();
     this.records.set(job_id, {
       job_id,
-      phase: "running",
+      prompt,
+      status: "generating",
       stage: "",
       logs: [],
       created_at: now,
       updated_at: now,
     });
     this.activeJobId = job_id;
+    this.persist();
     return job_id;
   }
 
@@ -63,21 +89,64 @@ export class RunRegistry {
   succeed(job_id: string, result: RunResult): void {
     const record = this.records.get(job_id);
     if (!record) return;
-    record.phase = "succeeded";
+    record.status = "preview";
+    record.run_id = result.run_id;
+    record.name = result.spec.name;
+    record.preview_url = result.preview.url;
     record.result = result;
     record.updated_at = Date.now();
+    this.persist();
   }
 
   fail(job_id: string, error: string): void {
     const record = this.records.get(job_id);
     if (!record) return;
-    record.phase = "failed";
+    record.status = "failed";
     record.error = error;
     this.append(record, `\u2716 ${error}`);
   }
 
+  markDeploying(run_id: string): void {
+    const record = this.byRunId(run_id);
+    if (!record) return;
+    record.status = "deploying";
+    record.updated_at = Date.now();
+    this.persist();
+  }
+
+  markLive(run_id: string, result: RunResult): void {
+    const record = this.byRunId(run_id);
+    if (!record) return;
+    record.status = "live";
+    record.result = result;
+    if (result.production) record.prod_url = result.production.url;
+    record.updated_at = Date.now();
+    this.persist();
+  }
+
   get(job_id: string): RunRecord | undefined {
     return this.records.get(job_id);
+  }
+
+  list(): ProjectSummary[] {
+    return [...this.records.values()]
+      .sort((a, b) => b.created_at - a.created_at)
+      .map((r) => ({
+        job_id: r.job_id,
+        name: r.name ?? r.prompt,
+        status: r.status,
+        stage: r.stage,
+        preview_url: r.preview_url ?? null,
+        prod_url: r.prod_url ?? null,
+        created_at: r.created_at,
+      }));
+  }
+
+  private byRunId(run_id: string): RunRecord | undefined {
+    for (const record of this.records.values()) {
+      if (record.run_id === run_id) return record;
+    }
+    return undefined;
   }
 
   private active(): RunRecord | undefined {
@@ -90,12 +159,36 @@ export class RunRegistry {
       record.logs = record.logs.slice(-MAX_LOG_LINES);
     }
     record.updated_at = Date.now();
+    this.persist();
+  }
+
+  private loadFromDisk(): void {
+    try {
+      const raw = fs.readFileSync(STORE_FILE, "utf8");
+      const parsed = JSON.parse(raw) as RunRecord[];
+      for (const record of parsed) {
+        if (record.status === "generating" || record.status === "deploying") {
+          record.status = "failed";
+          record.error = record.error ?? "interrupted by a server restart";
+        }
+        this.records.set(record.job_id, record);
+      }
+    } catch {
+      // no store yet (first run) or unreadable — start empty
+    }
+  }
+
+  private persist(): void {
+    try {
+      fs.mkdirSync(STORE_DIR, { recursive: true });
+      fs.writeFileSync(STORE_FILE, JSON.stringify([...this.records.values()]), "utf8");
+    } catch {
+      // a disk-write failure must not crash a build; in-memory state still serves
+    }
   }
 }
 
 /**
- * Logger that feeds the orchestrator's stage and message events into the run
- * registry instead of the console, so the dashboard shows real progress.
  * Implements the core Logger interface; every method routes a line into the
  * active run record (meta is intentionally dropped for a clean build log).
  */
