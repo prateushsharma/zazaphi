@@ -4,9 +4,8 @@ import type { OrchestratorPorts } from "@zazaphi/core";
 import { createGateway } from "@zazaphi/gateway";
 import { StubContextBuilder } from "@zazaphi/context";
 import { DefaultEconomics } from "@zazaphi/economics";
-import { StubSandbox } from "@zazaphi/sandbox";
 import { ManifestBuilder } from "@zazaphi/services";
-import { createDeploy } from "@zazaphi/deploy";
+import { createDeploy, createSandbox } from "@zazaphi/deploy";
 
 const PLACEHOLDER = ProjectSpec.parse({
   project_id: "proj_pending",
@@ -36,7 +35,7 @@ function build(): Engine {
     gateway,
     context: new StubContextBuilder(),
     economics: new DefaultEconomics(),
-    sandbox: new StubSandbox(false),
+    sandbox: createSandbox(store),
     services: new ManifestBuilder(),
     deploy: createDeploy(store),
     store,

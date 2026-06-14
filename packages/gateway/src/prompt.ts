@@ -15,6 +15,7 @@ const DEFAULT_PREFIX = [
   '- Import components by their default export, e.g. import TaskList from "./components/TaskList"; the import path must match the file path exactly.',
   "- Persist data with localStorage, but read or write it only inside useEffect — never during render or in a useState initializer.",
   "- Do not use a server, database, auth, Python, Express, SQL, or any external network API.",
+  "- Use ONLY react and built-in browser/JavaScript APIs. Do not import any third-party npm package (no date-fns, dayjs, lodash, axios, uuid, etc.) — the scaffold installs nothing beyond React, so such imports fail the build. Implement date math, formatting, and ids yourself with the built-in Date and Math.",
   "- Keep it to a handful of small files. Use clean relative paths only; never build paths from ids or titles.",
   "- If existing files are provided, build on them instead of starting over.",
   "",
