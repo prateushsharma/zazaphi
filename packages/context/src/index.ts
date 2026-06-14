@@ -2,8 +2,8 @@ import type { TaskSpec, ContextPacket, RelevantFile } from "@zazaphi/contracts";
 import type { ContextPort, ProjectMemory } from "@zazaphi/core";
 
 const STATIC_PREFIX_ID = "zazaphi.system.v1";
-const MAX_FILES = 6;
-const MAX_FILE_CHARS = 4000;
+const MAX_FILES = 4;
+const MAX_FILE_CHARS = 1500;
 
 function clip(content: string): string {
   return content.length > MAX_FILE_CHARS
@@ -15,9 +15,9 @@ function clip(content: string): string {
  * Assembles the context for one task. It pins the chosen stack and architecture
  * into the summary and surfaces the project's actual files so far (target files
  * first, then the rest of the file map) at full fidelity — so each task builds
- * on prior work instead of generating blind. It never sends more than a capped
- * set of files. The static prefix id is fixed so the cacheable system prefix
- * stays first and identical across calls.
+ * on prior work instead of generating blind. Files and per-file size are capped
+ * so the packet stays under the task input-token budget. The static prefix id is
+ * fixed so the cacheable system prefix stays first and identical across calls.
  */
 export class StubContextBuilder implements ContextPort {
   build(
