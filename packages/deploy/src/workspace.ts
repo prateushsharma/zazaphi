@@ -22,13 +22,19 @@ const POLYFILL =
   "export {};\n";
 
 const LAYOUT =
-  "import \"./zz-localstorage\";\n\n" +
+  "import \"./zz-localstorage\";\n" +
+  "import \"./globals.css\";\n\n" +
   "export default function RootLayout({ children }: { children: React.ReactNode }) {\n" +
   "  return (\n    <html lang=\"en\">\n      <body>{children}</body>\n    </html>\n  );\n}\n";
 
+const FALLBACK_CSS =
+  ":root { color-scheme: light dark; }\n" +
+  "* { box-sizing: border-box; }\n" +
+  "body { margin: 0; font-family: system-ui, -apple-system, sans-serif; }\n";
+
 /** Files that always come from us, so the project runs as Next.js regardless
  * of what the model emitted for them. The forced layout loads the server-side
- * localStorage stub before any page renders. */
+ * localStorage stub and the global stylesheet before any page renders. */
 const RUNTIME: Record<string, string> = {
   "package.json": JSON.stringify(
     {
@@ -86,10 +92,11 @@ const RUNTIME: Record<string, string> = {
 /** Filled only if the generated project does not provide them. */
 const FALLBACK: Record<string, string> = {
   "app/page.tsx": "export default function Page() {\n  return <main>Generated app</main>;\n}\n",
+  "app/globals.css": FALLBACK_CSS,
 };
 
 const SOURCE_FILE = /\.(tsx?|jsx?)$/;
-const PAGE_FILE = /(^|\/)page\.(tsx?|jsx?)$/;
+const COMPONENT_FILE = /\.(tsx|jsx)$/;
 
 /**
  * Repairs a mangled client-component directive: a bare `use client;` (or
@@ -110,12 +117,12 @@ export function normalizeClientDirective(content: string): string {
 }
 
 /**
- * Ensures a route page default-exports its component. The model sometimes
- * defines the component but omits `export default`, which makes Next render an
- * undefined element ("Element type is invalid"). If no default export is
- * present, the last top-level capitalised function/const (React component
- * convention) is exported as default. Files that already default-export are
- * left untouched.
+ * Ensures a React component file default-exports its component. The model
+ * sometimes defines the component but omits `export default`, which makes the
+ * import resolve to undefined ("Element type is invalid"). If no default export
+ * is present, the last top-level capitalised function/const (React component
+ * convention) is exported as default. Files that already default-export, and
+ * files with no component-like declaration, are left untouched.
  */
 export function ensureDefaultExport(content: string): string {
   if (/export\s+default\b/.test(content)) return content;
@@ -154,8 +161,8 @@ async function writeInto(root: string, rel: string, content: string): Promise<vo
 
 /**
  * Materializes the project for a runnable preview: generated files first (with
- * the client-directive and default-export repairs applied), then fallback entry
- * files only where missing, then the runtime config + layout + localStorage stub
+ * the client-directive and default-export repairs applied), then fallback files
+ * only where missing, then the runtime config + layout + localStorage stub
  * always forced — so `next build` / `next start` reliably boots a server.
  */
 export async function materializeForPreview(
@@ -166,7 +173,7 @@ export async function materializeForPreview(
   for (const [rel, content] of Object.entries(fileMap)) {
     let out = content;
     if (SOURCE_FILE.test(rel)) out = normalizeClientDirective(out);
-    if (PAGE_FILE.test(rel)) out = ensureDefaultExport(out);
+    if (COMPONENT_FILE.test(rel)) out = ensureDefaultExport(out);
     await writeInto(workdir, rel, out);
   }
   for (const [rel, content] of Object.entries(FALLBACK)) {
