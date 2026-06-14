@@ -2,8 +2,33 @@ import { mkdir, writeFile, access } from "node:fs/promises";
 import { constants } from "node:fs";
 import { dirname, resolve, sep } from "node:path";
 
+const POLYFILL =
+  "// Server-side safety net for generated client components that read\n" +
+  "// localStorage during the first (server) render. Provides an in-memory\n" +
+  "// stand-in when the real localStorage is absent (i.e. on the server) so the\n" +
+  "// production prerender does not crash. The browser localStorage is used on\n" +
+  "// the client.\n" +
+  "if (typeof (globalThis as any).localStorage === \"undefined\") {\n" +
+  "  const store = new Map();\n" +
+  "  (globalThis as any).localStorage = {\n" +
+  "    getItem(k) { return store.has(k) ? store.get(k) : null; },\n" +
+  "    setItem(k, v) { store.set(k, String(v)); },\n" +
+  "    removeItem(k) { store.delete(k); },\n" +
+  "    clear() { store.clear(); },\n" +
+  "    key(i) { return Array.from(store.keys())[i] ?? null; },\n" +
+  "    get length() { return store.size; },\n" +
+  "  };\n" +
+  "}\n" +
+  "export {};\n";
+
+const LAYOUT =
+  "import \"./zz-localstorage\";\n\n" +
+  "export default function RootLayout({ children }: { children: React.ReactNode }) {\n" +
+  "  return (\n    <html lang=\"en\">\n      <body>{children}</body>\n    </html>\n  );\n}\n";
+
 /** Files that always come from us, so the project runs as Next.js regardless
- * of what the model emitted for them. */
+ * of what the model emitted for them. The forced layout loads the server-side
+ * localStorage stub before any page renders. */
 const RUNTIME: Record<string, string> = {
   "package.json": JSON.stringify(
     {
@@ -54,13 +79,12 @@ const RUNTIME: Record<string, string> = {
     null,
     2,
   ),
+  "app/layout.tsx": LAYOUT,
+  "app/zz-localstorage.ts": POLYFILL,
 };
 
 /** Filled only if the generated project does not provide them. */
 const FALLBACK: Record<string, string> = {
-  "app/layout.tsx":
-    "export default function RootLayout({ children }: { children: React.ReactNode }) {\n" +
-    "  return (\n    <html lang=\"en\">\n      <body>{children}</body>\n    </html>\n  );\n}\n",
   "app/page.tsx": "export default function Page() {\n  return <main>Generated app</main>;\n}\n",
 };
 
@@ -110,8 +134,8 @@ async function writeInto(root: string, rel: string, content: string): Promise<vo
 /**
  * Materializes the project for a runnable preview: generated files first (with
  * the client-directive repair applied to source files), then fallback entry
- * files only where missing, then the runtime config files always forced — so
- * `next dev` / `next start` reliably boots a server.
+ * files only where missing, then the runtime config + layout + localStorage stub
+ * always forced — so `next build` / `next start` reliably boots a server.
  */
 export async function materializeForPreview(
   workdir: string,
