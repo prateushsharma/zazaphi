@@ -64,6 +64,26 @@ const FALLBACK: Record<string, string> = {
   "app/page.tsx": "export default function Page() {\n  return <main>Generated app</main>;\n}\n",
 };
 
+const SOURCE_FILE = /\.(tsx?|jsx?)$/;
+
+/**
+ * Repairs a mangled client-component directive: a bare `use client;` (or
+ * `use client`) on the first non-empty line is rewritten to the required string
+ * literal `'use client';`, so `next build` does not fail on a syntax error the
+ * model occasionally emits. Anything already quoted is left untouched.
+ */
+export function normalizeClientDirective(content: string): string {
+  const lines = content.split("\n");
+  let i = 0;
+  while (i < lines.length && (lines[i] ?? "").trim() === "") i += 1;
+  const first = lines[i];
+  if (first !== undefined && /^use\s+client\s*;?$/.test(first.trim())) {
+    lines[i] = "'use client';";
+    return lines.join("\n");
+  }
+  return content;
+}
+
 function safeJoin(root: string, rel: string): string {
   const target = resolve(root, rel);
   if (target !== root && !target.startsWith(root + sep)) {
@@ -88,9 +108,10 @@ async function writeInto(root: string, rel: string, content: string): Promise<vo
 }
 
 /**
- * Materializes the project for a runnable preview: generated files first, then
- * fallback entry files only where missing, then the runtime config files always
- * forced — so `next dev` / `next start` reliably boots a server.
+ * Materializes the project for a runnable preview: generated files first (with
+ * the client-directive repair applied to source files), then fallback entry
+ * files only where missing, then the runtime config files always forced — so
+ * `next dev` / `next start` reliably boots a server.
  */
 export async function materializeForPreview(
   workdir: string,
@@ -98,7 +119,8 @@ export async function materializeForPreview(
 ): Promise<void> {
   await mkdir(workdir, { recursive: true });
   for (const [rel, content] of Object.entries(fileMap)) {
-    await writeInto(workdir, rel, content);
+    const out = SOURCE_FILE.test(rel) ? normalizeClientDirective(content) : content;
+    await writeInto(workdir, rel, out);
   }
   for (const [rel, content] of Object.entries(FALLBACK)) {
     if (!(await exists(safeJoin(workdir, rel)))) {
