@@ -27,14 +27,27 @@ const LAYOUT =
   "export default function RootLayout({ children }: { children: React.ReactNode }) {\n" +
   "  return (\n    <html lang=\"en\">\n      <body>{children}</body>\n    </html>\n  );\n}\n";
 
-const FALLBACK_CSS =
-  ":root { color-scheme: light dark; }\n" +
-  "* { box-sizing: border-box; }\n" +
-  "body { margin: 0; font-family: system-ui, -apple-system, sans-serif; }\n";
+const GLOBALS_CSS = "@tailwind base;\n@tailwind components;\n@tailwind utilities;\n";
+
+const TAILWIND_CONFIG =
+  "/** @type {import('tailwindcss').Config} */\n" +
+  "module.exports = {\n" +
+  "  content: [\"./app/**/*.{js,jsx,ts,tsx}\"],\n" +
+  "  theme: { extend: {} },\n" +
+  "  plugins: [],\n" +
+  "};\n";
+
+const POSTCSS_CONFIG =
+  "module.exports = {\n" +
+  "  plugins: {\n" +
+  "    tailwindcss: {},\n" +
+  "    autoprefixer: {},\n" +
+  "  },\n" +
+  "};\n";
 
 /** Files that always come from us, so the project runs as Next.js regardless
  * of what the model emitted for them. The forced layout loads the server-side
- * localStorage stub and the global stylesheet before any page renders. */
+ * localStorage stub and the Tailwind stylesheet before any page renders. */
 const RUNTIME: Record<string, string> = {
   "package.json": JSON.stringify(
     {
@@ -52,6 +65,9 @@ const RUNTIME: Record<string, string> = {
         "@types/node": "20.14.0",
         "@types/react": "18.3.3",
         "@types/react-dom": "18.3.0",
+        tailwindcss: "3.4.10",
+        postcss: "8.4.41",
+        autoprefixer: "10.4.20",
       },
     },
     null,
@@ -85,14 +101,19 @@ const RUNTIME: Record<string, string> = {
     null,
     2,
   ),
+  "tailwind.config.js": TAILWIND_CONFIG,
+  "postcss.config.js": POSTCSS_CONFIG,
+  "app/globals.css": GLOBALS_CSS,
   "app/layout.tsx": LAYOUT,
   "app/zz-localstorage.ts": POLYFILL,
 };
 
 /** Filled only if the generated project does not provide them. */
 const FALLBACK: Record<string, string> = {
-  "app/page.tsx": "export default function Page() {\n  return <main>Generated app</main>;\n}\n",
-  "app/globals.css": FALLBACK_CSS,
+  "app/page.tsx":
+    "export default function Page() {\n" +
+    "  return <main className=\"min-h-screen bg-gray-50 p-6 text-gray-800\">Generated app</main>;\n" +
+    "}\n",
 };
 
 const SOURCE_FILE = /\.(tsx?|jsx?)$/;
@@ -162,8 +183,8 @@ async function writeInto(root: string, rel: string, content: string): Promise<vo
 /**
  * Materializes the project for a runnable preview: generated files first (with
  * the client-directive and default-export repairs applied), then fallback files
- * only where missing, then the runtime config + layout + localStorage stub
- * always forced — so `next build` / `next start` reliably boots a server.
+ * only where missing, then the runtime config + Tailwind + layout + localStorage
+ * stub always forced — so `next build` / `next start` reliably boots a server.
  */
 export async function materializeForPreview(
   workdir: string,
