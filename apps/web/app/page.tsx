@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 type TaskResult = {
   task: { task_id: string; title: string; type: string };
@@ -27,6 +27,8 @@ type StatusResponse = {
   result: RunResult | null;
   error: string | null;
 };
+
+const LAST_JOB_KEY = "zazaphi:lastJob";
 
 const STAGES = [
   { key: "requirement", label: "Requirement", desc: "deriving product spec" },
@@ -88,6 +90,77 @@ export default function Page() {
   const [error, setError] = useState(null as string | null);
   const [logs, setLogs] = useState([] as string[]);
 
+  // Apply a status snapshot to the UI. Returns true when the run is terminal
+  // (so polling can stop).
+  function applyStatus(s: StatusResponse): boolean {
+    setLogs(s.logs);
+    if (s.phase === "succeeded" && s.result) {
+      setActiveStage(STAGES.length);
+      setResult(s.result);
+      setPhase("done");
+      return true;
+    }
+    if (s.phase === "failed") {
+      setError(s.error ?? "build failed");
+      setPhase("idle");
+      setActiveStage(-1);
+      return true;
+    }
+    setActiveStage(activeStageFor(s.stage, s.phase));
+    setPhase("running");
+    return false;
+  }
+
+  function pollJob(jobId: string): void {
+    const poll = setInterval(() => {
+      void (async () => {
+        try {
+          const res = await fetch(`/api/status?job_id=${encodeURIComponent(jobId)}`);
+          if (!res.ok) {
+            if (res.status === 404) {
+              clearInterval(poll);
+              if (typeof window !== "undefined") window.localStorage.removeItem(LAST_JOB_KEY);
+            }
+            return;
+          }
+          const s = (await res.json()) as StatusResponse;
+          if (applyStatus(s)) clearInterval(poll);
+        } catch {
+          // transient fetch error during polling — try again on the next tick
+        }
+      })();
+    }, 1000);
+  }
+
+  // On load, restore the last build after a refresh. The run still lives in the
+  // server registry (in memory, on globalThis) as long as the dev server is up,
+  // so we re-fetch it by the job_id we stashed when the build started. A 404
+  // means the server restarted and dropped it — clear the stale id.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const stored = window.localStorage.getItem(LAST_JOB_KEY);
+    if (!stored) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch(`/api/status?job_id=${encodeURIComponent(stored)}`);
+        if (!res.ok) {
+          if (res.status === 404) window.localStorage.removeItem(LAST_JOB_KEY);
+          return;
+        }
+        const s = (await res.json()) as StatusResponse;
+        if (cancelled) return;
+        if (!applyStatus(s)) pollJob(stored);
+      } catch {
+        // nothing to restore
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   async function runBuild() {
     if (!prompt.trim() || phase === "running") return;
     setError(null);
@@ -113,31 +186,8 @@ export default function Page() {
       return;
     }
 
-    async function tick(): Promise<void> {
-      try {
-        const res = await fetch(`/api/status?job_id=${encodeURIComponent(jobId)}`);
-        if (!res.ok) return;
-        const s = (await res.json()) as StatusResponse;
-        setLogs(s.logs);
-        setActiveStage(activeStageFor(s.stage, s.phase));
-        if (s.phase === "succeeded" && s.result) {
-          clearInterval(poll);
-          setActiveStage(STAGES.length);
-          setResult(s.result);
-          setPhase("done");
-        } else if (s.phase === "failed") {
-          clearInterval(poll);
-          setError(s.error ?? "build failed");
-          setPhase("idle");
-          setActiveStage(-1);
-        }
-      } catch {
-        // transient fetch error during polling — try again on the next tick
-      }
-    }
-    const poll = setInterval(() => {
-      void tick();
-    }, 1000);
+    if (typeof window !== "undefined") window.localStorage.setItem(LAST_JOB_KEY, jobId);
+    pollJob(jobId);
   }
 
   async function approve(ok: boolean) {
@@ -163,6 +213,7 @@ export default function Page() {
     setPrompt("");
     setError(null);
     setLogs([]);
+    if (typeof window !== "undefined") window.localStorage.removeItem(LAST_JOB_KEY);
   }
 
   return (
