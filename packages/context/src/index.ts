@@ -1,17 +1,23 @@
-import type { TaskSpec, ContextPacket } from "@zazaphi/contracts";
+import type { TaskSpec, ContextPacket, RelevantFile } from "@zazaphi/contracts";
 import type { ContextPort, ProjectMemory } from "@zazaphi/core";
 
 const STATIC_PREFIX_ID = "zazaphi.system.v1";
-const MAX_FILES = 4;
+const MAX_FILES = 6;
+const MAX_FILE_CHARS = 4000;
+
+function clip(content: string): string {
+  return content.length > MAX_FILE_CHARS
+    ? `${content.slice(0, MAX_FILE_CHARS)}\n/* ...truncated... */`
+    : content;
+}
 
 /**
- * Assembles the smallest context that can satisfy a task. It never sends the
- * full repo: it selects the task's target files at the lowest fidelity that
- * works and attaches a short project + schema summary. The static prefix id is
- * fixed so the cacheable system prefix stays first and identical across calls.
- *
- * Retrieval ranking, fidelity selection and the memory tiers are filled in by
- * the @zazaphi/context implementation. This stub keeps the contract honest.
+ * Assembles the context for one task. It pins the chosen stack and architecture
+ * into the summary and surfaces the project's actual files so far (target files
+ * first, then the rest of the file map) at full fidelity — so each task builds
+ * on prior work instead of generating blind. It never sends more than a capped
+ * set of files. The static prefix id is fixed so the cacheable system prefix
+ * stays first and identical across calls.
  */
 export class StubContextBuilder implements ContextPort {
   build(
@@ -19,17 +25,25 @@ export class StubContextBuilder implements ContextPort {
     project: ProjectMemory,
     options: { includeErrors?: boolean } = {},
   ): ContextPacket {
-    const relevant = task.target_files
-      .slice(0, MAX_FILES)
-      .map((path) => ({
-        path,
-        mode: "signature" as const,
-        content: project.fileMap[path] ?? "",
-      }));
+    const stack = project.spec.stack ? ` Stack: ${project.spec.stack}.` : "";
+    const arch = project.architecture ? ` Architecture: ${project.architecture.summary}.` : "";
+    const projectSummary = `${project.spec.summary}${stack}${arch}`.trim();
+
+    const order = [
+      ...task.target_files,
+      ...Object.keys(project.fileMap).filter((p) => !task.target_files.includes(p)),
+    ];
+    const seen = new Set<string>();
+    const relevant: RelevantFile[] = [];
+    for (const path of order) {
+      if (seen.has(path) || relevant.length >= MAX_FILES) continue;
+      seen.add(path);
+      relevant.push({ path, mode: "full", content: clip(project.fileMap[path] ?? "") });
+    }
 
     return {
       static_prefix_id: STATIC_PREFIX_ID,
-      project_summary: project.spec.summary,
+      project_summary: projectSummary,
       current_task: {
         task_id: task.task_id,
         title: task.title,
