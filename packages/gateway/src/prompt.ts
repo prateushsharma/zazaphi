@@ -6,6 +6,7 @@ const DEFAULT_PREFIX = [
   "Rules for every step:",
   "- Put the complete working UI and logic in app/page.tsx as a client component.",
   "- The FIRST line of app/page.tsx must be exactly: 'use client'; — a quoted string literal with the semicolon, never the bare words use client.",
+  "- app/page.tsx must END by default-exporting its main component, e.g. export default TodoList; — without this the page renders nothing.",
   "- Persist data in the browser with localStorage. Read or write localStorage and other browser APIs only inside useEffect, never during render or in a useState initializer, so the server build does not fail.",
   "- Do not use a server, database, Python, Express, or SQL.",
   "- Write files only under app/ using clean relative paths (app/page.tsx, app/layout.tsx). Never build paths from ids or titles.",

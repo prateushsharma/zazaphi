@@ -89,6 +89,7 @@ const FALLBACK: Record<string, string> = {
 };
 
 const SOURCE_FILE = /\.(tsx?|jsx?)$/;
+const PAGE_FILE = /(^|\/)page\.(tsx?|jsx?)$/;
 
 /**
  * Repairs a mangled client-component directive: a bare `use client;` (or
@@ -106,6 +107,26 @@ export function normalizeClientDirective(content: string): string {
     return lines.join("\n");
   }
   return content;
+}
+
+/**
+ * Ensures a route page default-exports its component. The model sometimes
+ * defines the component but omits `export default`, which makes Next render an
+ * undefined element ("Element type is invalid"). If no default export is
+ * present, the last top-level capitalised function/const (React component
+ * convention) is exported as default. Files that already default-export are
+ * left untouched.
+ */
+export function ensureDefaultExport(content: string): string {
+  if (/export\s+default\b/.test(content)) return content;
+  const re = /(?:^|\n)\s*(?:export\s+)?(?:function\s+([A-Z]\w*)\s*\(|const\s+([A-Z]\w*)\s*[:=])/g;
+  let name: string | undefined;
+  for (const m of content.matchAll(re)) {
+    name = m[1] ?? m[2] ?? name;
+  }
+  if (name === undefined) return content;
+  const tail = content.endsWith("\n") ? "" : "\n";
+  return `${content}${tail}export default ${name};\n`;
 }
 
 function safeJoin(root: string, rel: string): string {
@@ -133,7 +154,7 @@ async function writeInto(root: string, rel: string, content: string): Promise<vo
 
 /**
  * Materializes the project for a runnable preview: generated files first (with
- * the client-directive repair applied to source files), then fallback entry
+ * the client-directive and default-export repairs applied), then fallback entry
  * files only where missing, then the runtime config + layout + localStorage stub
  * always forced — so `next build` / `next start` reliably boots a server.
  */
@@ -143,7 +164,9 @@ export async function materializeForPreview(
 ): Promise<void> {
   await mkdir(workdir, { recursive: true });
   for (const [rel, content] of Object.entries(fileMap)) {
-    const out = SOURCE_FILE.test(rel) ? normalizeClientDirective(content) : content;
+    let out = content;
+    if (SOURCE_FILE.test(rel)) out = normalizeClientDirective(out);
+    if (PAGE_FILE.test(rel)) out = ensureDefaultExport(out);
     await writeInto(workdir, rel, out);
   }
   for (const [rel, content] of Object.entries(FALLBACK)) {
